@@ -120,7 +120,7 @@ page = f"""<!doctype html>
 <nav class="top"><div class="wrap">
   <a class="brand" href="index.html">Experimentation toolkit</a>
   <a href="#validity">Validity</a><a href="#effect">Effect</a><a href="#cuped">CUPED</a><a href="#power">Power</a><a href="#uplift">Uplift</a><a href="#policy">Policy</a>
-  <a href="calculator.html">Calculator</a><a href="{REPO}">GitHub</a>
+  <a href="criteo.html">Criteo 14M</a><a href="calculator.html">Calculator</a><a href="{REPO}">GitHub</a>
 </div></nav>
 <main class="wrap">
 <header class="hero">

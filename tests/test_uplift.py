@@ -56,3 +56,22 @@ def test_decile_table_is_monotone_for_oracle(synthetic):
     _, y, t, tau = synthetic
     d = uplift_by_group(tau + np.random.default_rng(2).normal(0, 1e-6, len(tau)), y, t, 4)
     assert d.observed_uplift.iloc[0] > d.observed_uplift.iloc[-1] + 0.5
+
+
+def test_propensity_weighted_qini_is_unbiased_under_confounded_assignment():
+    """Assignment depends on x0, which also drives the outcome: plain Qini is biased, the IPW one is not."""
+    rng = np.random.default_rng(5)
+    n = 200000
+    x0 = rng.normal(size=n)
+    e = 1 / (1 + np.exp(-1.5 * x0))                      # strong selection on x0
+    t = (rng.random(n) < e).astype(int)
+    tau = np.full(n, 0.3)                                # constant true effect
+    y = 2.0 * x0 + tau * t + rng.normal(size=n)
+    score = np.random.default_rng(6).normal(size=n)      # uninformative ranking
+    end_plain = qini_curve(score, y, t).qini.iloc[-1] / n
+    end_ipw = qini_curve(score, y, t, propensity=e).qini.iloc[-1] / n
+    assert abs(end_plain - 0.3) > 0.5                    # naive difference in means is badly confounded
+    assert end_ipw == pytest.approx(0.3, abs=0.06)
+    g = uplift_by_group(score, y, t, 4, propensity=e)
+    assert g.observed_uplift.mean() == pytest.approx(0.3, abs=0.06)
+    assert ipw_gain(y, t, e) == pytest.approx(0.3, abs=0.06)  # ipw_gain already accepts per-row propensities

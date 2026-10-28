@@ -38,8 +38,11 @@ def t_learner(model, X_tr, y_tr, t_tr, X_te) -> np.ndarray:
     return _predict(m1, X_te) - _predict(m0, X_te)
 
 
-def x_learner(model, X_tr, y_tr, t_tr, X_te, reg_model=None) -> np.ndarray:
-    """Kunzel et al. (2019): impute individual effects, regress them, blend by propensity."""
+def x_learner(model, X_tr, y_tr, t_tr, X_te, reg_model=None, propensity=None) -> np.ndarray:
+    """Kunzel et al. (2019): impute individual effects, regress them, blend by propensity.
+
+    ``propensity`` is an optional array of P(T=1|x) aligned with ``X_te``; default is the constant treated share.
+    """
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     reg = reg_model or HistGradientBoostingRegressor(max_depth=3, learning_rate=0.05, max_iter=100,
@@ -51,7 +54,7 @@ def x_learner(model, X_tr, y_tr, t_tr, X_te, reg_model=None) -> np.ndarray:
     d0 = _predict(m1, X0) - y0  # control: imputed treated outcome minus observed
     tau1 = clone(reg).fit(X1, d1)
     tau0 = clone(reg).fit(X0, d0)
-    g = t_tr.mean()  # constant propensity: the test was randomized
+    g = t_tr.mean() if propensity is None else np.asarray(propensity)  # constant if the test was randomized
     return g * tau0.predict(X_te) + (1 - g) * tau1.predict(X_te)
 
 
@@ -81,7 +84,13 @@ def crossfit_arm_outcomes(X, y, arm, model, n_splits: int = 5, seed: int = 0) ->
 # ----------------------------------------------------------------------------- evaluation
 
 
-def qini_curve(tau, y, t, n_points: int = 100) -> pd.DataFrame:
+def ipw_weights(t, propensity) -> np.ndarray:
+    """w_i = T_i / e_i - (1 - T_i) / (1 - e_i); E[w_i * Y_i | x] = tau(x) when e is the true propensity."""
+    t, e = np.asarray(t, float), np.asarray(propensity, float)
+    return t / e - (1 - t) / (1 - e)
+
+
+def qini_curve(tau, y, t, n_points: int = 100, propensity=None) -> pd.DataFrame:
     """Cumulative incremental outcome when treating the top fraction ranked by ``tau``.
 
     qini(k) = k * (mean y of treated in top k - mean y of control in top k)
@@ -91,14 +100,21 @@ def qini_curve(tau, y, t, n_points: int = 100) -> pd.DataFrame:
     the gain when treatment is not 50/50; this version is always in whole-customer units.)
     ``random`` is the straight line to the same end point, i.e. the gain from treating
     a random subset of the same size. Divide by n for per-customer-in-population values.
+
+    If treatment assignment depended on covariates, pass ``propensity`` (P(T=1|x) per row): the curve is then the
+    inverse-propensity-weighted cumulative sum of ``w_i * y_i``, which stays unbiased where the plain
+    treated-minus-control comparison would not.
     """
     tau, y, t = np.asarray(tau), np.asarray(y, float), np.asarray(t, int)
     order = np.argsort(-tau, kind="stable")
     y, t = y[order], t[order]
-    ct, cc = np.cumsum(t), np.cumsum(1 - t)
-    cyt, cyc = np.cumsum(y * t), np.cumsum(y * (1 - t))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        q = np.where((ct > 0) & (cc > 0), (cyt / ct - cyc / cc) * (ct + cc), 0.0)
+    if propensity is None:
+        ct, cc = np.cumsum(t), np.cumsum(1 - t)
+        cyt, cyc = np.cumsum(y * t), np.cumsum(y * (1 - t))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            q = np.where((ct > 0) & (cc > 0), (cyt / ct - cyc / cc) * (ct + cc), 0.0)
+    else:
+        q = np.cumsum((ipw_weights(t, np.asarray(propensity)[order]) * y))
     n = len(y)
     idx = np.unique(np.linspace(0, n - 1, n_points).astype(int))
     frac = (idx + 1) / n
@@ -106,20 +122,28 @@ def qini_curve(tau, y, t, n_points: int = 100) -> pd.DataFrame:
                          "random": np.r_[0, frac * q[-1]]})
 
 
-def qini_coefficient(tau, y, t) -> float:
+def qini_coefficient(tau, y, t, propensity=None) -> float:
     """Area between the Qini curve and the random line, per customer (outcome units)."""
-    c = qini_curve(tau, y, t, n_points=200)
+    c = qini_curve(tau, y, t, n_points=200, propensity=propensity)
     gap = c["qini"] - c["random"]
     area = np.sum((gap.values[1:] + gap.values[:-1]) / 2 * np.diff(c["fraction"].values))
     return float(area / len(y))
 
 
-def uplift_by_group(tau, y, t, n_groups: int = 10) -> pd.DataFrame:
-    """Observed treated-vs-control difference inside equal-sized bins of predicted uplift."""
+def uplift_by_group(tau, y, t, n_groups: int = 10, propensity=None) -> pd.DataFrame:
+    """Observed treated-vs-control difference inside equal-sized bins of predicted uplift.
+
+    With ``propensity`` the per-bin effect is the mean of ``w_i * y_i`` (inverse-propensity weighted)."""
     df = pd.DataFrame({"tau": tau, "y": y, "t": t})
+    if propensity is not None:
+        df["wy"] = ipw_weights(t, propensity) * np.asarray(y, float)
     df["group"] = pd.qcut(df["tau"].rank(method="first", ascending=False), n_groups, labels=range(1, n_groups + 1))
     rows = []
     for g, d in df.groupby("group", observed=True):
+        if propensity is not None:
+            rows.append({"group": int(g), "n": len(d), "mean_pred_uplift": d.tau.mean(),
+                         "observed_uplift": d.wy.mean(), "se": d.wy.std(ddof=1) / np.sqrt(len(d))})
+            continue
         a, b = d[d.t == 1].y, d[d.t == 0].y
         rows.append({"group": int(g), "n": len(d), "mean_pred_uplift": d.tau.mean(),
                      "observed_uplift": a.mean() - b.mean(),
