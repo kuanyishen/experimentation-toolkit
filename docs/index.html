@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experimentation Toolkit</title>
+<meta name="description" content="Analysing a randomized e-mail campaign with CUPED, power analysis and uplift modeling, plus a live sample-size calculator.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="wrap">
+  <a class="brand" href="index.html">Experimentation toolkit</a>
+  <a href="#validity">Validity</a><a href="#effect">Effect</a><a href="#cuped">CUPED</a><a href="#power">Power</a><a href="#uplift">Uplift</a><a href="#policy">Policy</a>
+  <a href="calculator.html">Calculator</a><a href="https://github.com/kuanyishen/experimentation-toolkit">GitHub</a>
+</div></nav>
+<main class="wrap">
+<header class="hero">
+  <div class="eyebrow">Case study · Causal inference &amp; experimentation</div>
+  <h1>Did the e-mail work, and who should get it?</h1>
+  <p class="lead">An end-to-end analysis of a real randomized e-mail campaign (64,000 customers, Hillstrom MineThatData): trustworthy A/B read-out, CUPED variance reduction, power analysis, and uplift models that decide <em>who to target</em>. Everything is reproducible Python, tested, and the sample-size calculator at the end runs live in your browser.</p>
+  <div class="row"><a class="btn" href="calculator.html">Open the calculator</a><a class="btn ghost" href="https://github.com/kuanyishen/experimentation-toolkit">View code</a></div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><b>+7.7 pp</b><span>site visits from the men's e-mail (+72% relative)</span></div>
+  <div class="kpi"><b>$0.77</b><span>extra spend per customer, men's e-mail (p < 0.001)</span></div>
+  <div class="kpi"><b>0.1%</b><span>variance CUPED removes from spend here: weak covariates</span></div>
+  <div class="kpi"><b>+36%</b><span>more incremental visits from the top-30% uplift audience vs a random 30%</span></div>
+</div>
+
+<div class="callout"><p><b>TL;DR.</b> The campaign clearly works and the men's creative beats the women's ($0.35 more spend per customer, p = 0.030). CUPED is nearly useless <em>on this dataset</em> because the only pre-experiment covariates barely predict spend, and I show with simulation exactly when it does pay off. Uplift models find real, but moderate, heterogeneity in visit response; they can't reliably learn it from raw spend, and a per-customer choice of creative does not beat simply sending the men's e-mail to everyone.</p></div>
+
+<h2 id="data">The experiment</h2>
+<p>In 2008 Kevin Hillstrom's retailer randomly assigned 64,000 customers to a men's-merchandise e-mail, a women's-merchandise e-mail, or no e-mail, and tracked the following two weeks: site visit, purchase, and dollars spent. Covariates (all measured <em>before</em> the send): months since last purchase, prior-year spend, whether the customer buys men's/women's products, new-vs-existing, ZIP type and acquisition channel.</p>
+
+<h2 id="validity">1 · Can I trust the randomization?</h2>
+<p>Before reading any result: a sample-ratio-mismatch test on the arm sizes (21,306, 21,307, 21,387) gives χ² p = 0.90, so no sign of broken assignment. Covariate balance is excellent: the largest standardized mean difference between any e-mail arm and control is 0.009 (rule of thumb: worry above 0.1).</p>
+
+<h2 id="effect">2 · Did it work?</h2>
+<figure><img src="assets/fig_ab.png" alt="Forest plot of treatment effects"><figcaption>Difference in means with 95% Welch confidence intervals.</figcaption></figure>
+<div class="tablewrap"><table><thead><tr><th>Arm</th><th>Metric</th><th>Control</th><th>E-mail</th><th>Effect (95% CI)</th><th>Relative</th><th>p (Holm)</th></tr></thead><tbody><tr><td>Men's e-mail</td><td>Site visit</td><td>10.62%</td><td>18.28%</td><td>+7.66 pp ([+7.00 pp, +8.32 pp])</td><td>+72%</td><td>< 0.001</td></tr><tr><td>Men's e-mail</td><td>Purchase</td><td>0.57%</td><td>1.25%</td><td>+0.68 pp ([+0.50 pp, +0.86 pp])</td><td>+119%</td><td>< 0.001</td></tr><tr><td>Men's e-mail</td><td>Spend / customer</td><td>$0.65</td><td>$1.42</td><td>$0.77 ([$0.49, $1.05])</td><td>+118%</td><td>< 0.001</td></tr><tr><td>Women's e-mail</td><td>Site visit</td><td>10.62%</td><td>15.14%</td><td>+4.52 pp ([+3.89 pp, +5.16 pp])</td><td>+43%</td><td>< 0.001</td></tr><tr><td>Women's e-mail</td><td>Purchase</td><td>0.57%</td><td>0.88%</td><td>+0.31 pp ([+0.15 pp, +0.47 pp])</td><td>+54%</td><td>< 0.001</td></tr><tr><td>Women's e-mail</td><td>Spend / customer</td><td>$0.65</td><td>$1.08</td><td>$0.42 ([$0.17, $0.68])</td><td>+65%</td><td>0.001</td></tr></tbody></table></div>
+<p class="sub">Six hypotheses (2 e-mails × 3 metrics) are tested, so p-values are Holm-adjusted. Both e-mails lift visits, purchases and spend; the men's e-mail beats the women's on all three (spend difference $0.35, 95% CI [$0.03, $0.66]). Spend is the noisy one: 99% of customers spend nothing, so the standard deviation ($15) dwarfs the mean.</p>
+
+<h2 id="cuped">3 · CUPED: variance reduction from pre-experiment data</h2>
+<p>CUPED (Deng et al., 2013) subtracts the part of the outcome that a pre-experiment covariate already explains: <code>Y_adj = Y − θ·(X − mean(X))</code>. It leaves the effect estimate unbiased and cuts variance by ρ², the squared correlation between covariate and outcome. I tried prior-year spend alone, all pre-treatment covariates together, and a cross-fitted gradient-boosting prediction (CUPAC).</p>
+<div class="tablewrap"><table><thead><tr><th>Metric</th><th>Covariate set</th><th>√R²</th><th>Variance cut</th><th>Std. error</th><th>SE shrink</th></tr></thead><tbody><tr><td>visit</td><td>Raw (no adjustment)</td><td>–</td><td>0.0%</td><td>0.0034</td><td>0.0%</td></tr><tr><td>visit</td><td>History only (classic CUPED)</td><td>0.067</td><td>0.4%</td><td>0.0034</td><td>0.2%</td></tr><tr><td>visit</td><td>All pre-treatment covariates</td><td>0.156</td><td>2.4%</td><td>0.0033</td><td>1.2%</td></tr><tr><td>visit</td><td>ML prediction (CUPAC)</td><td>0.162</td><td>2.6%</td><td>0.0033</td><td>1.3%</td></tr><tr><td>spend</td><td>Raw (no adjustment)</td><td>–</td><td>0.0%</td><td>0.145</td><td>0.0%</td></tr><tr><td>spend</td><td>History only (classic CUPED)</td><td>0.021</td><td>0.0%</td><td>0.145</td><td>0.0%</td></tr><tr><td>spend</td><td>All pre-treatment covariates</td><td>0.035</td><td>0.1%</td><td>0.145</td><td>0.1%</td></tr><tr><td>spend</td><td>ML prediction (CUPAC)</td><td>0.016</td><td>0.0%</td><td>0.145</td><td>0.0%</td></tr></tbody></table></div>
+<div class="callout warn"><p><b>Honest result:</b> on spend, CUPED shrinks standard errors by roughly 0.1%, which is nothing, and even an ML covariate does no better (0.02%). Prior-year spend correlates only ~0.02 with two-week spend. For visits the gain is a still-small 2.4%. CUPED is a tool for metrics with a strong pre-period analogue (e.g. last month's revenue to predict this month's), not magic.</p></div>
+<figure><img src="assets/fig_cuped.png" alt="CUPED variance reduction versus correlation and CI coverage"><figcaption>Simulation (400 replications per point): variance reduction tracks ρ² almost exactly, CIs keep their nominal 95% coverage. The red squares are the Hillstrom estimates above.</figcaption></figure>
+
+<h2 id="power">4 · Power analysis</h2>
+<p>How big an effect could this experiment have detected? With 21,306 customers per arm:</p>
+<div class="tablewrap"><table><thead><tr><th>Metric</th><th>Control level</th><th>MDE (80% power)</th><th>MDE relative</th><th>Observed (Mens)</th><th>Observed relative</th></tr></thead><tbody><tr><td>Site visit</td><td>10.62%</td><td>0.85 pp</td><td>8%</td><td>7.66 pp</td><td>72%</td></tr><tr><td>Purchase</td><td>0.57%</td><td>0.22 pp</td><td>39%</td><td>0.68 pp</td><td>119%</td></tr><tr><td>Spend / customer</td><td>$0.65</td><td>$0.41</td><td>62%</td><td>$0.77</td><td>118%</td></tr></tbody></table></div>
+<p>The site-visit lift was ~9× the minimum detectable effect, so visits were overwhelmingly powered. Spend is the opposite: the men's e-mail's 118% lift is only 1.9× the 62% MDE, and the women's e-mail's 65% lift is barely above its 56% MDE (1.2×). That is why the spend p-values are weaker even though the dollar effects are large: a test with 80% power at the MDE will often miss effects that size. To check the formulas against reality I repeatedly subsampled the real data and counted how often the test fired:</p>
+<figure><img src="assets/fig_power.png" alt="Power curves, formula versus resampled data"><figcaption>Lines: closed-form power. Dots: share of 500 random subsamples with p &lt; 0.05. They agree, so the formulas can be trusted for planning.</figcaption></figure>
+<p>For planning a <em>new</em> test at this campaign's baseline purchase rate (0.57%), sample sizes are brutal for rare events:</p>
+<div class="tablewrap"><table><thead><tr><th>Relative lift to detect</th><th>Users per arm</th><th>…with CUPED (ρ≈0.55)</th></tr></thead><tbody><tr><td>+5%</td><td>1,117,393</td><td>782,175</td></tr><tr><td>+10%</td><td>286,118</td><td>200,283</td></tr><tr><td>+20%</td><td>74,911</td><td>52,438</td></tr><tr><td>+30%</td><td>34,795</td><td>24,357</td></tr><tr><td>+50%</td><td>13,606</td><td>9,524</td></tr></tbody></table></div>
+<p><a href="calculator.html">Plug in your own numbers in the live calculator →</a></p>
+
+<h2 id="uplift">5 · Uplift modeling: who should get the e-mail?</h2>
+<p>The average effect says nothing about <em>which customers</em> respond. Uplift (CATE) models estimate the effect per customer; I compare S-, T- and X-learners with gradient boosting, plus a plain logistic-regression T-learner as a simple baseline. Because assignment was randomized, I can evaluate them without modelling assumptions:</p>
+<ul class="tight">
+<li><b>Out-of-fold scores only.</b> 5-fold cross-fitting, repeated over 5 seeds and averaged, so no customer is scored by a model that saw them.</li>
+<li><b>Qini curve:</b> rank customers by predicted uplift, then measure real treated-vs-control outcomes within the top-k slice. Area above the random-targeting line = Qini coefficient.</li>
+<li><b>Model choice fixed in advance:</b> the X-learner (built for unbalanced 2:1 assignment: 2/3 of customers got an e-mail). Differences between models are within noise.</li>
+</ul>
+<h3>Target: site visits (dense, 15% positive)</h3>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Qini coefficient</th><th>95% CI</th><th>Top-30% gain (visits/customer)</th><th>Random 30%</th></tr></thead><tbody><tr><td>S-learner</td><td>0.0038</td><td>[0.0021, 0.0053]</td><td>0.0239</td><td>0.0183</td></tr><tr><td>T-learner</td><td>0.0037</td><td>[0.0021, 0.0051]</td><td>0.0226</td><td>0.0183</td></tr><tr><td>X-learner ★</td><td>0.0034</td><td>[0.0018, 0.0047]</td><td>0.0226</td><td>0.0183</td></tr><tr><td>T-learner (logistic)</td><td>0.0044</td><td>[0.0028, 0.0061]</td><td>0.0248</td><td>0.0183</td></tr></tbody></table></div>
+<p>Every model beats random targeting (CIs exclude 0), and the simple logistic model is as good as the boosted trees. Targeting the top 30% yields 0.025 extra visits per customer vs 0.018 from a random 30% (+36%).</p>
+<figure><img src="assets/fig_qini.png" alt="Qini curves"><figcaption>Cumulative incremental outcome when e-mailing customers in order of predicted uplift. Dashed grey: random order.</figcaption></figure>
+<figure><img src="assets/fig_deciles.png" alt="Observed lift by decile of predicted uplift"><figcaption>Observed treated-minus-control difference inside each decile of predicted uplift (95% CI). A good model shows a downward slope; decile 1 is clearly the most responsive.</figcaption></figure>
+<h3>Target: spend (99% zeros, heavy tail)</h3>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Qini coefficient</th><th>95% CI</th><th>Top-30% gain ($/customer)</th><th>Random 30%</th></tr></thead><tbody><tr><td>S-learner</td><td>0.001</td><td>[-0.044, 0.063]</td><td>0.232</td><td>0.179</td></tr><tr><td>T-learner</td><td>0.001</td><td>[-0.052, 0.063]</td><td>0.145</td><td>0.179</td></tr><tr><td>X-learner</td><td>-0.014</td><td>[-0.070, 0.058]</td><td>0.154</td><td>0.179</td></tr><tr><td>X-learner on visits (surrogate) ★</td><td>0.043</td><td>[-0.017, 0.115]</td><td>0.326</td><td>0.179</td></tr></tbody></table></div>
+<p>Models trained directly on spend are indistinguishable from noise: their Qini coefficient flips sign from seed to seed (seed-to-seed s.d. ≈ 0.021 vs. a signal of ~0). The workable approach is a <b>surrogate</b>: rank on the dense visit-uplift score and <i>evaluate</i> on dollars. That gives $0.33 per customer from the top 30% vs $0.18 at random, but its Qini CI [-0.017, 0.115] still includes zero: suggestive, not proven, with 64k customers and this much noise.</p>
+<h3>Who are the high-uplift customers?</h3>
+<div class="tablewrap"><table><thead><tr><th>Uplift quintile</th><th>Predicted lift</th><th>Buys women's</th><th>Buys men's</th><th>New customer</th><th>Months since purchase</th><th>Prior-year spend</th></tr></thead><tbody><tr><td>Q1</td><td>8.6 pp</td><td>100%</td><td>43%</td><td>68%</td><td>5.5</td><td>$416</td></tr><tr><td>Q2</td><td>7.1 pp</td><td>100%</td><td>1%</td><td>53%</td><td>6.4</td><td>$164</td></tr><tr><td>Q3</td><td>6.1 pp</td><td>73%</td><td>32%</td><td>34%</td><td>5.1</td><td>$233</td></tr><tr><td>Q4</td><td>4.6 pp</td><td>1%</td><td>99%</td><td>49%</td><td>6.4</td><td>$161</td></tr><tr><td>Q5</td><td>4.0 pp</td><td>1%</td><td>100%</td><td>47%</td><td>5.4</td><td>$235</td></tr></tbody></table></div>
+<p>The most responsive customers are those who buy <em>women's</em> merchandise and new customers, while men's-only buyers show the smallest predicted incremental response. Uplift is not the same as response rate: it ranks customers by how much the e-mail <em>changes</em> their behaviour, which need not be the customers who respond most in absolute terms.</p>
+
+<h3>Where to stop? Targeting under a cost per e-mail</h3>
+<figure><img src="assets/fig_targeting.png" alt="Net incremental revenue vs share of customers e-mailed" style="max-width:640px"><figcaption>Net incremental revenue per customer in the whole population = IPW-estimated uplift of the targeted slice minus cost × share e-mailed. Dots mark the best audience size.</figcaption></figure>
+<div class="tablewrap"><table><thead><tr><th>Cost per e-mail</th><th>E-mail everyone</th><th>Best audience share → net / customer*</th><th>Top 30% minus everyone (95% CI)</th></tr></thead><tbody><tr><td>$0.00</td><td>$0.60</td><td>100% → $0.60</td><td>-$0.27 [-$0.45, -$0.08]</td></tr><tr><td>$0.25</td><td>$0.35</td><td>100% → $0.35</td><td>-$0.10 [-$0.27, $0.09]</td></tr><tr><td>$0.50</td><td>$0.10</td><td>35% → $0.19</td><td>$0.08 [-$0.10, $0.27]</td></tr></tbody></table></div>
+<p class="sub">*Audience size chosen on the same data, so it's optimistic; the fixed 30% column is the cleaner comparison. Revenue, not margin: scale the cost accordingly.</p>
+<p>At a negligible cost per e-mail the answer is simply "e-mail everyone": the average effect (~$0.60/customer) dwarfs it, and holding back 70% of customers forgoes $0.27 each. Targeting only starts to look attractive once contact costs approach the average incremental revenue (expensive channels, discounts, unsubscribe cost). Even at $0.50 the estimated gain from the top 30% ($0.08/customer) has a confidence interval that includes zero, so this data supports the <em>mechanics</em> of cost-aware targeting better than a firm business conclusion.</p>
+
+<h2 id="policy">6 · Which creative to send each customer?</h2>
+<p>Three arms allow a bigger question: for each customer choose none / men's / women's e-mail. A T-learner per arm (cross-fitted) predicts the outcome under each and picks the best. Policies are valued with inverse-propensity weighting (each arm had probability 1/3), with bootstrap CIs.</p>
+<figure><img src="assets/fig_policy.png" alt="Expected outcome under alternative policies"></figure>
+<div class="tablewrap"><table><thead><tr><th>Policy</th><th>Expected spend / customer</th><th>95% CI</th></tr></thead><tbody><tr><td>Send nothing</td><td>$0.65</td><td>[$0.50, $0.83]</td></tr><tr><td>Mens e-mail to everyone</td><td>$1.42</td><td>[$1.18, $1.64]</td></tr><tr><td>Womens e-mail to everyone</td><td>$1.08</td><td>[$0.90, $1.28]</td></tr><tr><td>Match to stated interest</td><td>$1.26</td><td>[$1.08, $1.46]</td></tr><tr><td>Learned best-arm policy</td><td>$1.28</td><td>[$1.06, $1.49]</td></tr></tbody></table></div>
+<div class="callout warn"><p><b>Negative result worth reporting:</b> the learned policy does <em>not</em> beat "send the men's e-mail to everyone" (spend difference -$0.14, 95% CI [-$0.30, $0.02]; visits -0.03 pp, CI [-0.4, +0.4] pp). Personalization needs enough signal to pay for its estimation noise; here the single best creative captures nearly all of the value.</p></div>
+
+<h2>Method notes &amp; limitations</h2>
+<ul class="tight">
+<li>"Treated" in the uplift section pools both e-mails (any e-mail vs none); the policy section separates them.</li>
+<li>CUPED θ is estimated on pooled data and then treated as fixed (standard; negligible error at this n). The covariates are strictly pre-treatment.</li>
+<li>Outcomes are a single two-week window; novelty, fatigue and long-run effects are invisible. Spend is revenue, not profit.</li>
+<li>Uplift CIs bootstrap customers while holding the out-of-fold scores fixed, so they ignore model-training variability; I show seed-to-seed spread separately.</li>
+<li>Data: <a href="https://blog.minethatdata.com/2008/03/minethatdata-e-mail-analytics-and-data.html">Hillstrom, MineThatData E-Mail Analytics and Data Mining Challenge (2008)</a>.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre><code>git clone https://github.com/kuanyishen/experimentation-toolkit.git &amp;&amp; cd experimentation-toolkit
+pip install -e ".[dev]"
+python analysis/run_analysis.py   # downloads data, writes results + figures (~3 min)
+python analysis/build_site.py     # renders this page
+pytest                            # statistical checks + JS/Python parity</code></pre>
+
+<footer>Built by Sky Shen · <a href="https://github.com/kuanyishen/experimentation-toolkit">source</a> · <a href="calculator.html">calculator</a></footer>
+</main>
+</body>
+</html>

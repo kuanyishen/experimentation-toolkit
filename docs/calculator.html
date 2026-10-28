@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A/B Test Sample Size Calculator</title>
+<meta name="description" content="Live sample-size, power and minimum-detectable-effect calculator for conversion and continuous metrics, with CUPED variance reduction and multiple-variant correction.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="wrap">
+  <a class="brand" href="index.html">Experimentation toolkit</a>
+  <a href="index.html">Case study</a><a class="on" href="calculator.html">Calculator</a>
+  <a href="https://github.com/kuanyishen/experimentation-toolkit">GitHub</a>
+</div></nav>
+<main class="wrap">
+<header class="hero">
+  <div class="eyebrow">Live tool</div>
+  <h1>Sample-size &amp; power calculator</h1>
+  <p class="lead">Plan an A/B test before you run it: how many users, how long, or what effect you can actually detect. Handles conversion and continuous metrics, uneven splits, several variants and CUPED.</p>
+</header>
+
+<div class="chips" id="presets" aria-label="Presets">
+  <span class="sub" style="align-self:center">Start from:</span>
+  <button data-preset="hs_conv">Hillstrom purchase rate</button>
+  <button data-preset="hs_visit">Hillstrom site-visit rate</button>
+  <button data-preset="hs_spend">Hillstrom spend / customer</button>
+  <button data-preset="checkout">Checkout conversion 3%</button>
+</div>
+
+<div class="calc">
+  <section class="card" aria-label="Inputs">
+    <div class="seg" id="mode" role="tablist">
+      <button data-v="n" class="on">Sample size</button><button data-v="mde">Detectable effect</button><button data-v="power">Power</button>
+    </div><br>
+    <div class="seg" id="metric">
+      <button data-v="prop" class="on">Conversion rate</button><button data-v="mean">Continuous metric</button>
+    </div>
+
+    <div class="field" id="f-base-prop"><label for="base">Baseline conversion rate <span>%</span></label><input id="base" type="number" step="any" value="5" min="0.001" max="99.9"></div>
+    <div class="pair hide" id="f-base-mean">
+      <div class="field"><label for="mean">Baseline mean</label><input id="mean" type="number" step="any" value="10"></div>
+      <div class="field"><label for="sd">Standard deviation</label><input id="sd" type="number" step="any" value="25" min="0.0001"></div>
+    </div>
+
+    <div class="pair" id="f-effect">
+      <div class="field"><label for="effect">Effect to detect</label><input id="effect" type="number" step="any" value="10" min="0.0001"></div>
+      <div class="field"><label for="eff-kind">as</label><select id="eff-kind"><option value="rel">relative lift (%)</option><option value="abs">absolute change</option></select></div>
+    </div>
+    <div class="field hide" id="f-n"><label for="n">Users in the control group</label><input id="n" type="number" step="1" value="10000" min="2"></div>
+
+    <div class="pair">
+      <div class="field"><label for="alpha">Significance level (α)</label><select id="alpha"><option>0.10</option><option selected>0.05</option><option>0.01</option></select></div>
+      <div class="field" id="f-power"><label for="power">Power (1 − β)</label><select id="power"><option>0.70</option><option selected>0.80</option><option>0.90</option><option>0.95</option></select></div>
+    </div>
+    <div class="pair">
+      <div class="field"><label for="sides">Test</label><select id="sides"><option value="2" selected>two-sided</option><option value="1">one-sided</option></select></div>
+      <div class="field"><label for="ctrl">Traffic to control <span id="ctrl-v">50%</span></label><input id="ctrl" type="range" min="10" max="90" step="5" value="50"></div>
+    </div>
+    <div class="pair">
+      <div class="field"><label for="variants">Treatment variants</label><select id="variants"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+      <div class="field"><label for="bonf">Multiple variants</label><select id="bonf"><option value="1" selected>Bonferroni-adjust α</option><option value="0">no correction</option></select></div>
+    </div>
+    <div class="field"><label for="rho">CUPED: correlation ρ with a pre-experiment metric <span id="rho-v">0.00</span></label><input id="rho" type="range" min="0" max="0.95" step="0.05" value="0"></div>
+    <div class="field" id="f-traffic"><label for="traffic">Eligible users per day (optional)</label><input id="traffic" type="number" step="any" min="0" placeholder="e.g. 4000"></div>
+  </section>
+
+  <section class="card" aria-live="polite" aria-label="Results">
+    <h3 id="r-title">Required sample size</h3>
+    <div class="big" id="r-main">–</div>
+    <div class="sub" id="r-sub"></div>
+    <div class="results" id="r-grid"></div>
+    <p class="err" id="r-err"></p>
+    <svg class="chart" id="chart" viewBox="0 0 520 300" role="img" aria-label="Power versus sample size"></svg>
+    <p class="sub" id="r-note"></p>
+    <div class="row"><button class="btn ghost" id="copy">Copy link to this setup</button></div>
+  </section>
+</div>
+
+<h2>How it works</h2>
+<p>Normal-approximation formulas, the same ones implemented (and unit-tested against <code>statsmodels</code> and Monte Carlo simulation) in the Python package behind this page:</p>
+<pre><code>n_control = (Var_c + Var_t / r) · (z₁₋α/₂ + z_power)² / Δ²          r = n_treat / n_control
+Var (proportion) = p(1−p)     Var (mean) = σ²
+CUPED:  Var → Var · (1 − ρ²)  ⇒  sample size shrinks by a factor of (1 − ρ²)</code></pre>
+<ul class="tight">
+  <li><b>Several variants:</b> every treatment is compared against the same control. Bonferroni divides α by the number of variants, which is conservative but simple. Total traffic = control + variants × treatment-arm size.</li>
+  <li><b>CUPED</b> only helps if the pre-experiment metric really is correlated with the outcome; ρ = 0.5 saves 25%, ρ = 0.8 saves 64%. See the <a href="index.html#cuped">case study</a> for a dataset where it saves almost nothing.</li>
+  <li><b>Limits:</b> for very small samples or rates near 0/1 an exact test is more accurate; it also assumes a fixed horizon (no peeking) and independent users.</li>
+</ul>
+<footer>Part of the <a href="index.html">experimentation toolkit</a> · source on <a href="https://github.com/kuanyishen/experimentation-toolkit">GitHub</a></footer>
+</main>
+<script src="powerlib.js"></script>
+<script src="calculator.js"></script>
+</body>
+</html>
