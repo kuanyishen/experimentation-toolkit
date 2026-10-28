@@ -1,10 +1,18 @@
 # Experimentation toolkit
 
+[![ci](https://github.com/kuanyishen/experimentation-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/kuanyishen/experimentation-toolkit/actions/workflows/ci.yml)
+
+### 👉 [Read the case study](https://kuanyishen.github.io/experimentation-toolkit/) · [Try the live calculator](https://kuanyishen.github.io/experimentation-toolkit/calculator.html)
+
 **Did the e-mail work, and who should get it?** An end-to-end analysis of a real randomized e-mail campaign
 ([Hillstrom MineThatData](https://blog.minethatdata.com/2008/03/minethatdata-e-mail-analytics-and-data.html), 64,000 customers, 3 arms), built as a small tested Python package plus a static site with a live sample-size calculator.
 
-- **Case study:** `docs/index.html` (published via GitHub Pages)
-- **Live calculator:** `docs/calculator.html` — sample size / minimum detectable effect / power for conversion and continuous metrics, uneven splits, multiple variants (Bonferroni) and CUPED. Pure JavaScript, shareable links.
+[![Sample-size calculator](docs/assets/screenshot_calculator.png)](https://kuanyishen.github.io/experimentation-toolkit/calculator.html)
+
+| | |
+|---|---|
+| **Case study** | <https://kuanyishen.github.io/experimentation-toolkit/> — validity checks, A/B read-out, CUPED, power analysis, uplift modeling, targeting policy |
+| **Live calculator** | <https://kuanyishen.github.io/experimentation-toolkit/calculator.html> — sample size / minimum detectable effect / power for conversion and continuous metrics, uneven splits, multiple variants (Bonferroni) and CUPED. Pure JavaScript, shareable links. |
 
 ## What's inside
 
