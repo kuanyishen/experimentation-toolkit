@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criteo Uplift at Scale</title>
+<meta name="description" content="14-million-user ad experiment: a randomization audit, propensity-adjusted effects, CUPAC variance reduction, power and allocation analysis, and uplift modeling.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="top"><div class="wrap">
+  <a class="brand" href="index.html">Experimentation toolkit</a>
+  <a href="index.html">Hillstrom</a><a class="on" href="criteo.html">Criteo 14M</a>
+  <a href="#audit">Audit</a><a href="#effect">Effect</a><a href="#cuped">CUPAC</a><a href="#power">Power</a><a href="#uplift">Uplift</a>
+  <a href="calculator.html">Calculator</a><a href="https://github.com/kuanyishen/experimentation-toolkit">GitHub</a>
+</div></nav>
+<main class="wrap">
+<header class="hero">
+  <div class="eyebrow">Case study 2 · Experimentation at scale</div>
+  <h1>The randomization wasn't quite random, and it changed the answer</h1>
+  <p class="lead">The Criteo uplift benchmark: 13,979,592 users, an ad campaign shown to 85% of them. Same toolkit as the e-mail case study, but at 200× the scale, and with a twist: the arms are measurably imbalanced, so the naive A/B read-out overstates the lift. I audit it, correct it, and then find the 20% of users who carry most of the effect.</p>
+  <div class="row"><a class="btn" href="#audit">Start with the audit</a><a class="btn ghost" href="index.html">First case study: Hillstrom e-mail</a></div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><b>1.04 → 0.74 pp</b><span>site-visit lift: naive vs doubly-robust adjusted</span></div>
+  <div class="kpi"><b>0.510</b><span>propensity AUC: the features faintly predict who was treated (0.5 = pure chance)</span></div>
+  <div class="kpi"><b>91%</b><span>of incremental conversions come from the top 20% of users by predicted uplift</span></div>
+  <div class="kpi"><b>33%</b><span>variance CUPAC removes on visits (vs 0.1% for spend on the Hillstrom data)</span></div>
+</div>
+
+<div class="callout"><p><b>TL;DR.</b> The campaign works, but the textbook difference-in-means overstates the visit lift by ~41% and the conversion lift by ~13%, because the treated group was slightly tilted toward users who visit anyway. Propensity weighting, an outcome model and their doubly-robust combination agree and restore balance. After adjustment, uplift is extremely concentrated: the top decile of users shows a 0.81 pp conversion lift vs a 0.10 pp average, and targeting the top 20% captures ~91% of all incremental conversions.</p></div>
+
+<h2 id="data">The experiment</h2>
+<p>Criteo AI Lab's uplift dataset (v2.1; <a href="https://ar5iv.labs.arxiv.org/html/2111.10106">Diemert et al.</a>): 13,979,592 users, 12 anonymised numeric features, a treatment flag (85% treated), and three outcomes: site <b>visit</b>, <b>conversion</b> and ad <b>exposure</b>. Only 3.5% of treated users were actually exposed to an ad, so "treatment" really means <i>eligible to be shown ads</i>. Exposure is post-treatment and is never used as a feature.</p>
+<p>To keep every model honest the data is split into three disjoint parts: <b>A</b> (1,537,755 users, propensity and CUPAC covariate models), <b>B</b> (5,452,040, outcome and uplift models) and <b>C</b> (6,989,797, a holdout where every estimate below is computed). The full pipeline runs in about 15 minutes on 4 CPU cores.</p>
+
+<h2 id="audit">1 · Was assignment actually random?</h2>
+<p>The split passes a sample-ratio check against 85/15 (χ² p = 1.00). But with 14M rows, covariate balance is the sharper test:</p>
+<figure><img src="assets/criteo/fig_balance.png" alt="Standardized mean differences before and after propensity weighting" style="max-width:640px"><figcaption>Treated minus control, in standard deviations. Every raw difference is below the usual 0.1 rule of thumb (max 0.049), yet with 14M users they are highly significant, and the features predict outcomes strongly.</figcaption></figure>
+<p>A classifier trained on part A to predict <i>treatment</i> from the 12 features scores AUC <b>0.510</b> on holdout C (95% CI [0.5095, 0.5107]). Under perfect randomization that would be 0.5. It is a faint signal, but the same features predict <i>visits</i> very well, and that is what matters: a faint tilt in who gets treated, multiplied by a strong outcome predictor, is a real bias. Estimated assignment probabilities range from 0.81 to 0.97 (median 0.848), so overlap is excellent and weights are benign (effective sample size 100.0% of nominal). After weighting by the inverse propensity, the largest remaining imbalance falls to <b>0.0040</b>.</p>
+<p class="sub">Why might this happen? Published descriptions say the data pool several incrementality tests; if their treated/control ratios differ, any feature that identifies the sub-test predicts assignment. The features are anonymised, so I can't verify that. Another possibility, that features were recorded <i>after</i> treatment and so were affected by it, would make adjusting for them wrong. The evidence below favours the first explanation (three independent adjustments agree and restore balance), but balance on observed features can't rule out unobserved confounding.</p>
+
+<h2 id="effect">2 · What is the effect, really?</h2>
+<figure><img src="assets/criteo/fig_estimates.png" alt="Effect estimates under five estimators"><figcaption>Five estimators on holdout C, 95% CIs. Naive = difference in means as if randomized. IPW = inverse-propensity weighting. AIPW = augmented IPW (doubly robust: consistent if either the propensity or the outcome model is right).</figcaption></figure>
+<div class="tablewrap"><table><thead><tr><th>Metric</th><th>Estimator</th><th>Lift (pp)</th><th>Std. error (pp)</th><th>vs naive</th><th>Variance cut</th></tr></thead><tbody><tr><td>Site visit</td><td>Naive difference in means</td><td>1.036</td><td>0.0207</td><td>–</td><td>–</td></tr><tr><td>Site visit</td><td>CUPED, linear in the 12 features</td><td>0.692</td><td>0.0179</td><td>-33%</td><td>28%</td></tr><tr><td>Site visit</td><td>CUPAC (ML covariate)</td><td>0.630</td><td>0.0173</td><td>-39%</td><td>33%</td></tr><tr><td>Site visit</td><td>IPW (estimated propensity)</td><td>0.793</td><td>0.0221</td><td>-24%</td><td>–</td></tr><tr><td>Site visit</td><td>AIPW (doubly robust)</td><td>0.737</td><td>0.0179</td><td>-29%</td><td>34%</td></tr><tr><td>Conversion</td><td>Naive difference in means</td><td>0.116</td><td>0.0049</td><td>–</td><td>–</td></tr><tr><td>Conversion</td><td>CUPED, linear in the 12 features</td><td>0.094</td><td>0.0046</td><td>-19%</td><td>12%</td></tr><tr><td>Conversion</td><td>CUPAC (ML covariate)</td><td>0.093</td><td>0.0046</td><td>-20%</td><td>13%</td></tr><tr><td>Conversion</td><td>IPW (estimated propensity)</td><td>0.097</td><td>0.0052</td><td>-16%</td><td>–</td></tr><tr><td>Conversion</td><td>AIPW (doubly robust)</td><td>0.103</td><td>0.0048</td><td>-11%</td><td>14%</td></tr></tbody></table></div>
+<p>The naive visit lift is <b>1.04 pp</b>; every adjusted estimator lands between 0.63 and 0.79 pp, with the doubly-robust estimate at <b>0.74 pp</b> (95% CI [0.70, 0.77]). For conversions the shift is smaller, 0.116 pp naive vs 0.103 pp adjusted, but still around 2.8 adjusted standard errors. Either way the campaign clearly works; the question is how much to credit it, which is what a budget decision depends on.</p>
+<h3>Intent-to-treat vs the effect on people who saw an ad</h3>
+<p>Since only 3.5% of treated users were exposed (and control users never could be), the ITT lift is diluted. Scaling by the exposure rate (a Wald / complier-average estimate, assuming ads affect only people who see them) gives a conversion lift of <b>2.9 pp</b> per exposed user (95% CI [2.6, 3.2] pp) and 21 pp for visits.</p>
+
+<h2 id="cuped">3 · CUPED, CUPAC and what they really do</h2>
+<p>With no pre-experiment metric available, I use the same idea with the 12 pre-treatment features: a gradient-boosting model fitted on part A predicts each user's outcome, and CUPED subtracts that prediction (<b>CUPAC</b>). Unlike the Hillstrom data, where prior-year spend barely predicted spend (0.1% variance cut), these features are highly informative about visits:</p>
+<ul class="tight">
+<li><b>Visits:</b> CUPAC removes 33% of the variance (linear CUPED on the raw features: 28%); AIPW's outcome model cuts the standard error by a similar amount relative to IPW (34% of variance).</li>
+<li><b>Conversions:</b> only 13%. A 0.3%-positive outcome is hard to predict.</li>
+<li><b>In sample-size terms</b> (to detect the adjusted effect with 80% power at the actual 85/15 split): visits 42,880 → 28,194 users (34% fewer); conversions 121,114 → 104,747 (14% fewer).</li>
+</ul>
+<div class="callout warn"><p><b>A warning that only shows up with imbalanced arms.</b> CUPED's promise is "same expected effect, less variance". Here the CUPED and CUPAC point estimates <em>moved</em> (1.04 → 0.63 pp for visits), far more than their standard errors shrank. That shift is not variance reduction; it is the covariates quietly correcting a confounded comparison. Treat an estimate that moves more than the variance reduction can explain as a randomization alarm, then fix it properly with IPW/AIPW rather than a single-coefficient adjustment (the two still differ from each other by about 0.1 pp).</p></div>
+
+<h2 id="power">4 · Power and allocation</h2>
+<p>The experiment was 85/15 by design: more exposure, but a small control group. The control group is what limits precision, so unequal splits cost power:</p>
+<div class="tablewrap"><table><thead><tr><th>Metric</th><th>Treatment / control split</th><th>Relative MDE, 100k users</th><th>Relative MDE, 1M users</th></tr></thead><tbody><tr><td>Site visit</td><td>50 / 50</td><td>9%</td><td>2.8%</td></tr><tr><td>Site visit</td><td>75 / 25</td><td>10%</td><td>3.3%</td></tr><tr><td>Site visit</td><td>85 / 15 (as run)</td><td>13%</td><td>3.9%</td></tr><tr><td>Conversion</td><td>50 / 50</td><td>45%</td><td>13.1%</td></tr><tr><td>Conversion</td><td>75 / 25</td><td>49%</td><td>15.0%</td></tr><tr><td>Conversion</td><td>85 / 15 (as run)</td><td>59%</td><td>18.1%</td></tr></tbody></table></div>
+<p>At 100,000 users, detecting a conversion lift needs a 59% relative change with the 85/15 split vs 45% at 50/50, roughly <b>1.7× more users</b> for the same power. The 14M-user campaign was far beyond what the average effect needs (121,114 users); its scale pays off for <em>uplift modelling</em>, not for the headline A/B result. I checked the formulas by repeatedly subsampling the real data:</p>
+<figure><img src="assets/criteo/fig_power.png" alt="Power formula vs resampled data"><figcaption>Lines: closed-form power at 85/15. Dots: share of 400 random subsamples with p &lt; 0.05. They agree except at the smallest conversion sample (25,000 users contain only ~7 control conversions, where the normal approximation is shaky).</figcaption></figure>
+<p><a href="calculator.html">The live calculator</a> handles uneven splits: set "traffic to control" to 15%.</p>
+
+<h2 id="uplift">5 · Uplift: who is the ad actually changing?</h2>
+<p>Four learners (S, T, X and a logistic T-learner) are trained on part B (5,452,040 users) and scored on holdout C. Because assignment depends on the features, evaluation uses <b>propensity-weighted</b> Qini curves and uplift-by-decile, an extension I added to the toolkit (and unit-tested on synthetic confounded data). Confidence intervals come from 20 random chunks of the holdout. The X-learner (★) was fixed in advance as the primary model.</p>
+<h3>Site visits</h3>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Qini ×1000</th><th>95% CI</th><th>Top 20%: extra visits / 1,000 users</th><th>Random 20%</th></tr></thead><tbody><tr><td>T-learner</td><td>3.12</td><td>[2.96, 3.29]</td><td>7.02</td><td>1.59</td></tr><tr><td>S-learner</td><td>3.45</td><td>[3.27, 3.63]</td><td>7.39</td><td>1.59</td></tr><tr><td>X-learner ★</td><td>3.43</td><td>[3.23, 3.63]</td><td>7.18</td><td>1.59</td></tr><tr><td>T-learner (logistic)</td><td>3.12</td><td>[2.93, 3.30]</td><td>6.89</td><td>1.59</td></tr></tbody></table></div>
+<h3>Conversions</h3>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Qini ×1000</th><th>95% CI</th><th>Top 20%: extra conversions / 1,000 users</th><th>Random 20%</th></tr></thead><tbody><tr><td>T-learner</td><td>0.33</td><td>[0.28, 0.38]</td><td>0.81</td><td>0.19</td></tr><tr><td>S-learner</td><td>0.45</td><td>[0.41, 0.49]</td><td>0.93</td><td>0.19</td></tr><tr><td>X-learner ★</td><td>0.42</td><td>[0.38, 0.47]</td><td>0.88</td><td>0.19</td></tr><tr><td>T-learner (logistic)</td><td>0.41</td><td>[0.36, 0.45]</td><td>0.87</td><td>0.19</td></tr><tr><td>X-learner on visits (surrogate)</td><td>0.43</td><td>[0.38, 0.47]</td><td>0.90</td><td>0.19</td></tr></tbody></table></div>
+<p>The S- and X-learners are best on conversions; the single-model S-learner beats the T-learner clearly, a typical pattern when the control arm is small and its positives are few. Ranking on <i>visit</i> uplift, a much denser signal, and evaluating on conversions (the "surrogate" row) works nearly as well as modelling conversions directly. Rank on the dense proxy, measure on the business metric.</p>
+<figure><img src="assets/criteo/fig_qini.png" alt="Qini curves for visits and conversions"><figcaption>Propensity-weighted Qini curves. The steep rise is the point: a small slice of users produces nearly all of the incremental outcome.</figcaption></figure>
+<figure><img src="assets/criteo/fig_deciles.png" alt="Measured lift by uplift decile"><figcaption>Measured lift inside each decile of predicted uplift (95% CI). The top decile lifts visits by 6.5 pp and conversions by 0.81 pp; each of the bottom five deciles adds at most 0.06 pp to visits and 0.01 pp to conversions.</figcaption></figure>
+<p>Targeting the top 20% captures <b>91%</b> of all incremental visits and <b>91%</b> of incremental conversions (0.88 of 0.97 per 1,000 users), versus 20% for random targeting.</p>
+<h3>What distinguishes high-uplift users?</h3>
+<p>A model-free screen on holdout C (weighted conversion lift by bins of each feature) shows where the lift lives: low values of <code>f8</code>, <code>f6</code> and <code>f0</code>. The features are anonymised so there is no business interpretation, but the pattern is consistent and large:</p>
+<figure><img src="assets/criteo/fig_heterogeneity.png" alt="Conversion lift by feature bin"><figcaption>Propensity-weighted conversion lift by feature bin on the four most heterogeneous features (many features take few distinct values, so bins are fewer than five). Screening 12 features is multiple comparisons, but the effects are many standard errors wide.</figcaption></figure>
+<h3>Where to stop?</h3>
+<p>Targeting has a price. Suppose each targeted user costs a fixed amount, expressed as a fraction of one conversion's value (e.g. ad cost $0.015 against a $50 conversion = 0.3 conversions per 1,000 users). The best audience shrinks as that cost grows:</p>
+<figure><img src="assets/criteo/fig_targeting.png" alt="Net incremental conversions vs share targeted" style="max-width:660px"></figure>
+<div class="tablewrap"><table><thead><tr><th>Cost per targeted user (conversions per 1,000)</th><th>Target everyone: net / 1,000</th><th>Best audience → net / 1,000</th><th>Gain vs everyone</th></tr></thead><tbody><tr><td>0.0</td><td>0.97</td><td>100% → 0.97</td><td>+0%</td></tr><tr><td>0.3</td><td>0.67</td><td>30% → 0.84</td><td>+24%</td></tr><tr><td>0.6</td><td>0.37</td><td>18% → 0.77</td><td>+106%</td></tr></tbody></table></div>
+<p class="sub">Illustrative costs; Criteo provides no prices. The audience size is chosen on the same holdout, which is optimistic, but with ~7M users the curve's maximum is stable.</p>
+<h3>How much data does uplift need?</h3>
+<figure><img src="assets/criteo/fig_learning.png" alt="Learning curve" style="max-width:560px"><figcaption>Qini coefficient (T-learner, conversions) vs training-set size, with 95% CI. It is noisy below ~1M users (0.09 at 200k, 0.23 at 800k) and reaches 0.31–0.33 at 3–5.5M. Individual-level effects are far more data-hungry than average effects: this is why 14M users can matter even though ~0.1M suffice for the headline A/B.</figcaption></figure>
+
+<h2>Limitations</h2>
+<ul class="tight">
+<li>All adjustments assume no <em>unmeasured</em> confounding; balance on 12 anonymised features cannot prove that.</li>
+<li>Uplift ranks are evaluated with an estimated propensity; the propensity model is trained on a disjoint split, and the CIs ignore model-training variance.</li>
+<li>One campaign, short outcome window; no revenue, so costs are illustrative.</li>
+<li>Data was obtained from a public GitHub mirror because the official host was unreachable. Row count (13,979,592) and overall rates match the published description, but I could not verify a checksum.</li>
+</ul>
+<h2>Reproduce</h2>
+<pre><code>pip install -e ".[dev]"
+python analysis/run_criteo.py     # downloads ~300 MB once; ~15 min, 16 GB RAM
+python analysis/build_criteo.py   # renders this page</code></pre>
+<footer>Built by Sky Shen · <a href="https://github.com/kuanyishen/experimentation-toolkit">source</a> · <a href="index.html">Hillstrom case study</a> · <a href="calculator.html">calculator</a></footer>
+</main>
+</body>
+</html>

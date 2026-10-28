@@ -131,7 +131,7 @@ def heterogeneity(R, out):
         ax.errorbar(b.bin, b.uplift * 100, yerr=1.96 * b.se * 100, fmt="o-", color=BLUE, capsize=3, lw=1.8)
         ax.set_title(h["feature"])
         ax.set_xticks(b.bin)
-        ax.set_xlabel("quintile of feature")
+        ax.set_xlabel("feature bin (low → high)")
     axes[0].set_ylabel("conversion lift (pp)")
     fig.tight_layout()
     _save(fig, out, "fig_heterogeneity.png")
